@@ -31,7 +31,7 @@ static KeyNode* matrix_pin_states[ROW_PINS_NUM][COL_PINS_NUM];
 
 // HID buffer
 
-static struct {
+__ALIGN_BEGIN static struct __ALIGN_END {
     uint8_t modifiers;
     uint8_t RESERVED;
     uint8_t keycodes[DEVICE_KEYCODE_REPORT_SIZE];
@@ -187,7 +187,6 @@ static void update_hid_buffer() {
 
 
 void start_matrix_scan() {
-
     // setup linked list
     for (int i = 0; i < DEVICE_KEYCODE_REPORT_SIZE - 1; ++i) {
         // prev not needed (not used on uninited nodes)
