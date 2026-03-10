@@ -187,6 +187,7 @@ static void update_hid_buffer() {
 
 
 void start_matrix_scan() {
+
     // setup linked list
     for (int i = 0; i < DEVICE_KEYCODE_REPORT_SIZE - 1; ++i) {
         // prev not needed (not used on uninited nodes)

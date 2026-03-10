@@ -5,6 +5,8 @@
 #include "usb.h"
 #include "matrix.h"
 
+uint8_t buffer[8];
+
 void pmain(void) {
     init_usb();
 
