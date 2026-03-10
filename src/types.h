@@ -9,6 +9,15 @@ typedef struct GPIO_Pin {
     uint16_t num;
 } GPIO_Pin;
 
-typedef uint8_t KeyCode;
+typedef enum KeyFunctionType {
+    KeyLiteral = 0,
+    LayerSwitchHold,
+    ModifierMask,
+} KeyFunctionType;
+
+typedef struct KeyFunction {
+    KeyFunctionType function;
+    uint8_t value;
+} KeyFunction;
 
 #endif

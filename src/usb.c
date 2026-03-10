@@ -64,7 +64,7 @@ void init_usb(void) {
     USBD_Start(&hUsbDeviceFS);
 }
 
-void send_buffer(uint8_t* buffer, size_t length) {
+void usb_hid_send_buffer(uint8_t* buffer, size_t length) {
     USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, buffer, length);
 }
 

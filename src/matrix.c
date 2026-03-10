@@ -1,30 +1,239 @@
 #include "matrix.h"
 
+#include "usbd_conf.h"
+#include "usb.h"
+
 #include "config.h"
 
-#define ROW_PINS_NUM sizeof(ROW_PINS) / sizeof(GPIO_Pin)
-#define COL_PINS_NUM sizeof(COL_PINS) / sizeof(GPIO_Pin)
+#define DEVICE_KEYCODE_REPORT_SIZE (USBD_CUSTOMHID_OUTREPORT_BUF_SIZE - 2)
 
 static int current_layer = 0;
-static int matrix_pin_states[ROW_PINS_NUM][COL_PINS_NUM];
+
+typedef struct KeyNode {
+    const KeyFunction* key;
+
+    struct KeyNode* next;
+    struct KeyNode* prev;
+} KeyNode;
+
+// keycode literals list
+
+static KeyNode keynode_list[DEVICE_KEYCODE_REPORT_SIZE];
+
+static KeyNode* keynode_list_head = NULL;
+static KeyNode* keynode_list_tail = NULL;
+
+static KeyNode* keynode_list_unused;
+
+// matrix states
+
+static KeyNode* matrix_pin_states[ROW_PINS_NUM][COL_PINS_NUM];
+
+// HID buffer
+
+static struct {
+    uint8_t modifiers;
+    uint8_t RESERVED;
+    uint8_t keycodes[DEVICE_KEYCODE_REPORT_SIZE];
+} usb_hid_buffer;
+
+// static keyfunctions for modifiers/layer switch
+
+static KeyFunction STATIC_CURRLAYER_HOLD_FUNC = {
+    .function = LayerSwitchHold,
+    // value irrelevant
+};
+static KeyNode STATIC_CURRLAYER_HOLD_NODE = {.key = &STATIC_CURRLAYER_HOLD_FUNC};
+
+static KeyFunction STATIC_MODIFIER_FUNC = {
+    .function = ModifierMask,
+    // value irrelevant
+};
+static KeyNode STATIC_MODIFIER_NODE = {.key = &STATIC_MODIFIER_FUNC};
+
+
+// =======================================
+// =======================================
+
+
+static void remove_keyliteral_node(KeyNode** node_ptr) {
+    KeyNode* node = *node_ptr;
+
+    // remove node from list
+
+    // move head/tail
+    if (keynode_list_head == node) 
+        keynode_list_head = node->next;
+    if (keynode_list_tail == node) 
+        keynode_list_tail = node->prev;
+
+    // join neighbors
+    if (node->prev) 
+        node->prev->next = node->next;
+    if (node->next) 
+        node->next->prev = node->prev;
+
+    // set as first element of unused list
+    node->next = keynode_list_unused;
+    keynode_list_unused = node;
+    // both prev vals left as junk (never used uninited)
+}
+
+static void remove_layerswitch_hold(KeyNode** node_ptr) {
+    // just remove all layers
+    current_layer = 0;
+}
+
+static void remove_modifier_mask(KeyNode** node_ptr) {
+    usb_hid_buffer.modifiers = usb_hid_buffer.modifiers ^ (*node_ptr)->key->value;
+}
+
+static void key_remove(KeyNode** node_ptr) {
+    KeyNode* node = *node_ptr;    
+
+    switch(node->key->function) {
+        case KeyLiteral: 
+            remove_keyliteral_node(node_ptr);
+            break;
+        case LayerSwitchHold: 
+            remove_layerswitch_hold(node_ptr);
+            break;
+        case ModifierMask:
+            remove_modifier_mask(node_ptr);
+            break;
+        default: break;
+    }
+
+    // remove key from matrix
+    *node_ptr = NULL;
+}
+
+
+static void add_keyliteral_node(KeyNode** node_ptr, const KeyFunction* key_function) {
+    // key turning on, add to keycode if possible
+
+    // check if linked list is full
+    if (!keynode_list_unused) 
+        return;
+
+    // add to list
+    
+    // get next unused node
+    KeyNode* node = keynode_list_unused;
+    keynode_list_unused = node->next;
+    node->next = NULL;
+
+    // append node to linkedlist
+    if (keynode_list_tail) {
+        keynode_list_tail->next = node;
+        node->prev = keynode_list_tail;
+    } else {
+        // only node, set as head as well as tail
+        keynode_list_head = node;
+        node->prev = NULL;
+    }
+    keynode_list_tail = node;
+
+    // set node data
+    node->key = key_function;
+
+    // put node in matrix state array
+    *node_ptr = node;
+}
+
+static void add_layerswitch_hold(KeyNode** node_ptr, const KeyFunction* key_function) {
+    // only one at a time, will override if new one pressed
+    current_layer = key_function->value;
+    *node_ptr = &STATIC_CURRLAYER_HOLD_NODE;
+}
+
+static void add_modifier_mask(KeyNode** node_ptr, const KeyFunction* key_function) {
+    // bitwise OR adds to it
+    usb_hid_buffer.modifiers = usb_hid_buffer.modifiers | key_function->value;
+    *node_ptr = &STATIC_MODIFIER_NODE;
+}
+
+static void key_add(KeyNode** node_ptr, const KeyFunction* key_function) {
+    switch (key_function->function) {
+        case KeyLiteral:
+            add_keyliteral_node(node_ptr, key_function);
+            break;
+        case LayerSwitchHold:
+            add_layerswitch_hold(node_ptr, key_function);
+            break;
+        case ModifierMask:
+            add_modifier_mask(node_ptr, key_function);
+            break;
+        default: break;
+    }
+}
+
+
+static void update_hid_buffer() {
+    // modifier mask updated with their respective functions
+    
+    // update keys pressed
+    KeyNode* curr = keynode_list_head;
+    for (int i = 0; i < DEVICE_KEYCODE_REPORT_SIZE; ++i) {
+        if (!curr) {
+            usb_hid_buffer.keycodes[i] = 0;
+            continue;
+        }
+        // will only be nodes with .function = KeyLiteral 
+        usb_hid_buffer.keycodes[i] = curr->key->value;
+        curr = curr->next;
+    }
+}
+
+
+void start_matrix_scan() {
+    // setup linked list
+    for (int i = 0; i < DEVICE_KEYCODE_REPORT_SIZE - 1; ++i) {
+        // prev not needed (not used on uninited nodes)
+        keynode_list[i].next = &keynode_list[i+1];
+    }
+    keynode_list_unused = &keynode_list[0];
+
+    // TODO timer approach
+    for (;;) { update_matrix(); }
+}
 
 void update_matrix() {
     int changed = 0;
     
     for (int col = 0; col <  COL_PINS_NUM; ++col) {
+        // write COL high
         HAL_GPIO_WritePin(COL_PINS[col].letter, COL_PINS[col].num, 1);
         
         for (int row = 0; row < ROW_PINS_NUM; ++row) {
+            // read ROW to see if COL high comes through
             int pin_state = HAL_GPIO_ReadPin(ROW_PINS[row].letter, ROW_PINS[row].num);
-            if (pin_state == matrix_pin_states[row][col]) continue;
-            matrix_pin_states[row][col] = pin_state;
+
+            KeyNode* matrix_state = matrix_pin_states[row][col];
+
+            // check if keystate changed
+            if (!pin_state && !matrix_state) continue;
+            if (pin_state && matrix_state) continue;
+
+            // changed, add/remove from report
+            if (pin_state) { 
+                key_add(&matrix_pin_states[row][col], &KEYBOARD_DEFS[current_layer][row][col]);
+            }
+            else key_remove(&matrix_pin_states[row][col]);
+
             changed = 1;
         }
 
+        // write COL back low (has pulldown resistors)
         HAL_GPIO_WritePin(COL_PINS[col].letter, COL_PINS[col].num, 0);
     }
 
+    // TODO handle thumbpad
+
     if (changed) {
-        // get keycodes and send USB update
+        // update buffer from keynode list
+        update_hid_buffer();
+        // send USB update
+        usb_hid_send_buffer((uint8_t*)&usb_hid_buffer, USBD_CUSTOMHID_OUTREPORT_BUF_SIZE);
     }
 }

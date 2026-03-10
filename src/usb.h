@@ -7,6 +7,6 @@
 void init_usb(void);
 
 // static length defined in CubeMX
-void send_buffer(uint8_t* buffer, size_t length);
+void usb_hid_send_buffer(uint8_t* buffer, size_t length);
 
 #endif
