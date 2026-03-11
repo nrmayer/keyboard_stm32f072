@@ -227,10 +227,10 @@ void update_matrix() {
 
     // TODO handle thumbpad
 
-    if (changed) {
+    // if (changed) {
         // update buffer from keynode list
         update_hid_buffer();
         // send USB update
         usb_hid_send_buffer((uint8_t*)&usb_hid_buffer, USBD_CUSTOMHID_OUTREPORT_BUF_SIZE);
-    }
+    // }
 }

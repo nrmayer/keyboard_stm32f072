@@ -38,7 +38,7 @@ KeyFunction KEYBOARD_DEFS[KEYBOARD_LAYERS][ROW_PINS_NUM][COL_PINS_NUM] = {
         {{.value = KEY_TAB},{.value = KEY_Q},{.value = KEY_W},{.value = KEY_E},{.value = KEY_R},{.value = KEY_T},{.value = KEY_Y},{.value = KEY_U}},
         {{.value = KEY_CAPSLOCK},{.value = KEY_A},{.value = KEY_S},{.value = KEY_D},{.value = KEY_F},{.value = KEY_G},{.value = KEY_H},{.value = KEY_J}},
         {{.function = ModifierMask, .value=KEY_MOD_LSHIFT},{.value = KEY_Z},{.value = KEY_X},{.value = KEY_C},{.value = KEY_V},{.value = KEY_B},{.value = KEY_N},{.value = KEY_M}},
-        {{.value = KEY_A},{.value = KEY_A},{.value = KEY_A},{.value = KEY_A},{.value = KEY_A},{.value = KEY_A},{.value = KEY_A},{.value = KEY_A}},
+        {{.function = LayerSwitchHold, .value = 1},{.value = KEY_A},{.value = KEY_A},{.value = KEY_A},{.value = KEY_A},{.value = KEY_A},{.value = KEY_A},{.value = KEY_A}},
     },
     { // layer 1 (right)
         {{.value = KEY_6},{.value = KEY_7},{.value = KEY_8},{.value = KEY_9},{.value = KEY_0},{.value = KEY_MINUS},{.value = KEY_EQUAL},{.value = KEY_BACKSPACE}},
