@@ -1,5 +1,8 @@
 #include "matrix.h"
 
+// memset
+#include <string.h>
+
 #include "usbd_conf.h"
 #include "usb.h"
 
@@ -8,6 +11,7 @@
 #define DEVICE_KEYCODE_REPORT_SIZE (USBD_CUSTOMHID_OUTREPORT_BUF_SIZE - 2)
 
 static int current_layer = 0;
+static int base_layer = 0;
 
 typedef struct KeyNode {
     const KeyFunction* key;
@@ -15,6 +19,11 @@ typedef struct KeyNode {
     struct KeyNode* next;
     struct KeyNode* prev;
 } KeyNode;
+
+typedef struct MatrixNode {
+    KeyNode* keynode;
+    const KeyFunction* keyfunc;
+} MatrixNode;
 
 // keycode literals list
 
@@ -27,7 +36,7 @@ static KeyNode* keynode_list_unused;
 
 // matrix states
 
-static KeyNode* matrix_pin_states[ROW_PINS_NUM][COL_PINS_NUM];
+static MatrixNode matrix_pin_states[ROW_PINS_NUM][COL_PINS_NUM];
 
 // HID buffer
 
@@ -36,20 +45,6 @@ __ALIGN_BEGIN static struct __ALIGN_END {
     uint8_t RESERVED;
     uint8_t keycodes[DEVICE_KEYCODE_REPORT_SIZE];
 } usb_hid_buffer;
-
-// static keyfunctions for modifiers/layer switch
-
-static KeyFunction STATIC_CURRLAYER_HOLD_FUNC = {
-    .function = LayerSwitchHold,
-    // value irrelevant
-};
-static KeyNode STATIC_CURRLAYER_HOLD_NODE = {.key = &STATIC_CURRLAYER_HOLD_FUNC};
-
-static KeyFunction STATIC_MODIFIER_FUNC = {
-    .function = ModifierMask,
-    // value irrelevant
-};
-static KeyNode STATIC_MODIFIER_NODE = {.key = &STATIC_MODIFIER_FUNC};
 
 
 // =======================================
@@ -81,22 +76,21 @@ static void remove_keyliteral_node(KeyNode** node_ptr) {
 
 static void remove_layerswitch_hold(KeyNode** node_ptr) {
     // just remove all layers
-    current_layer = 0;
+    current_layer = base_layer;
 }
 
-static void remove_modifier_mask(KeyNode** node_ptr) {
-    usb_hid_buffer.modifiers = usb_hid_buffer.modifiers ^ (*node_ptr)->key->value;
+static void remove_modifier_mask(MatrixNode* node_ptr) {
+    // bit XOR takes it out
+    usb_hid_buffer.modifiers = usb_hid_buffer.modifiers ^ node_ptr->keyfunc->value;
 }
 
-static void key_remove(KeyNode** node_ptr) {
-    KeyNode* node = *node_ptr;    
-
-    switch(node->key->function) {
+static void key_remove(MatrixNode* node_ptr) {
+    switch(node_ptr->keyfunc->function) {
         case KeyLiteral: 
-            remove_keyliteral_node(node_ptr);
+            remove_keyliteral_node(&node_ptr->keynode);
             break;
         case LayerSwitchHold: 
-            remove_layerswitch_hold(node_ptr);
+            remove_layerswitch_hold(&node_ptr->keynode);
             break;
         case ModifierMask:
             remove_modifier_mask(node_ptr);
@@ -105,7 +99,7 @@ static void key_remove(KeyNode** node_ptr) {
     }
 
     // remove key from matrix
-    *node_ptr = NULL;
+    memset(node_ptr, 0, sizeof(MatrixNode));
 }
 
 
@@ -144,25 +138,27 @@ static void add_keyliteral_node(KeyNode** node_ptr, const KeyFunction* key_funct
 static void add_layerswitch_hold(KeyNode** node_ptr, const KeyFunction* key_function) {
     // only one at a time, will override if new one pressed
     current_layer = key_function->value;
-    *node_ptr = &STATIC_CURRLAYER_HOLD_NODE;
 }
 
-static void add_modifier_mask(KeyNode** node_ptr, const KeyFunction* key_function) {
+static void add_modifier_mask(MatrixNode* node_ptr) {
     // bitwise OR adds to it
-    usb_hid_buffer.modifiers = usb_hid_buffer.modifiers | key_function->value;
-    *node_ptr = &STATIC_MODIFIER_NODE;
+    usb_hid_buffer.modifiers = usb_hid_buffer.modifiers | node_ptr->keyfunc->value;
 }
 
-static void key_add(KeyNode** node_ptr, const KeyFunction* key_function) {
+static void key_add(MatrixNode* node_ptr, const KeyFunction* key_function) {
+    // set key function of matrix value
+    node_ptr->keyfunc = key_function;
+
+    // handle according to type
     switch (key_function->function) {
         case KeyLiteral:
-            add_keyliteral_node(node_ptr, key_function);
+            add_keyliteral_node(&node_ptr->keynode, key_function);
             break;
         case LayerSwitchHold:
-            add_layerswitch_hold(node_ptr, key_function);
+            add_layerswitch_hold(&node_ptr->keynode, key_function);
             break;
         case ModifierMask:
-            add_modifier_mask(node_ptr, key_function);
+            add_modifier_mask(node_ptr);
             break;
         default: break;
     }
@@ -209,11 +205,11 @@ void update_matrix() {
             // read ROW to see if COL high comes through
             int pin_state = HAL_GPIO_ReadPin(ROW_PINS[row].letter, ROW_PINS[row].num);
 
-            KeyNode* matrix_state = matrix_pin_states[row][col];
+            MatrixNode matrix_state = matrix_pin_states[row][col];
 
             // check if keystate changed
-            if (!pin_state && !matrix_state) continue;
-            if (pin_state && matrix_state) continue;
+            if (!pin_state && !matrix_state.keyfunc) continue;
+            if (pin_state && matrix_state.keyfunc) continue;
 
             // changed, add/remove from report
             if (pin_state) { 
