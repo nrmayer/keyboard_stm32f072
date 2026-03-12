@@ -53,6 +53,7 @@ __ALIGN_BEGIN static struct __ALIGN_END {
 
 static void remove_keyliteral_node(KeyNode** node_ptr) {
     KeyNode* node = *node_ptr;
+    if (!node) return;
 
     // remove node from list
 
