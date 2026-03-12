@@ -196,8 +196,6 @@ void start_matrix_scan() {
 }
 
 void update_matrix() {
-    int changed = 0;
-    
     for (int col = 0; col <  COL_PINS_NUM; ++col) {
         // write COL high
         HAL_GPIO_WritePin(COL_PINS[col].letter, COL_PINS[col].num, 1);
@@ -217,8 +215,6 @@ void update_matrix() {
                 key_add(&matrix_pin_states[row][col], &KEYBOARD_DEFS[current_layer][row][col]);
             }
             else key_remove(&matrix_pin_states[row][col]);
-
-            changed = 1;
         }
 
         // write COL back low (has pulldown resistors)
