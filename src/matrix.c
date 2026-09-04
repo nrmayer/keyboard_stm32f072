@@ -37,6 +37,7 @@ static KeyNode* keynode_list_unused;
 // matrix states
 
 static MatrixNode matrix_pin_states[ROW_PINS_NUM][COL_PINS_NUM];
+static MatrixNode thumbpad_pin_states[THUMBPAD_BUTTON_NUM];
 
 // HID buffer
 
@@ -166,6 +167,35 @@ static void key_add(MatrixNode* node_ptr, const KeyFunction* key_function) {
 }
 
 
+static void update_thumbpad() {
+    // update side
+    int base_prev = base_layer;
+    base_layer = HAL_GPIO_ReadPin(THUMBPAD_DETECT.letter, THUMBPAD_DETECT.num) ? 0 : 1;
+    if (base_prev != base_layer) current_layer = base_layer;
+
+    // set LED
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, base_layer);
+
+    // check buttons
+    for (int i = 0; i < THUMBPAD_BUTTON_NUM; ++i) {
+        GPIO_PinState state = HAL_GPIO_ReadPin(THUMBPAD_BUTTON_PINS[i].letter, THUMBPAD_BUTTON_PINS[i].num);
+
+        if (state && !thumbpad_pin_states[i].keyfunc) continue;
+        if (!state && thumbpad_pin_states[i].keyfunc) continue;
+
+        // has pullup resistor instead of down, inverted logic
+        if (state) {
+            // remove it
+            key_remove(&thumbpad_pin_states[i]);
+        }
+        else {
+            // add it
+            key_add(&thumbpad_pin_states[i], &THUMBPAD_DEFS[current_layer][i]);
+        }
+    }
+}
+
+
 static void update_hid_buffer() {
     // modifier mask updated with their respective functions
     
@@ -196,13 +226,16 @@ void start_matrix_scan() {
 }
 
 void update_matrix() {
+    // update first due to layer shenanegans
+    update_thumbpad();
+
     for (int col = 0; col <  COL_PINS_NUM; ++col) {
         // write COL high
         HAL_GPIO_WritePin(COL_PINS[col].letter, COL_PINS[col].num, 1);
         
         for (int row = 0; row < ROW_PINS_NUM; ++row) {
             // read ROW to see if COL high comes through
-            int pin_state = HAL_GPIO_ReadPin(ROW_PINS[row].letter, ROW_PINS[row].num);
+            GPIO_PinState pin_state = HAL_GPIO_ReadPin(ROW_PINS[row].letter, ROW_PINS[row].num);
 
             MatrixNode matrix_state = matrix_pin_states[row][col];
 
@@ -221,12 +254,8 @@ void update_matrix() {
         HAL_GPIO_WritePin(COL_PINS[col].letter, COL_PINS[col].num, 0);
     }
 
-    // TODO handle thumbpad
-
-    // if (changed) {
-        // update buffer from keynode list
-        update_hid_buffer();
-        // send USB update
-        usb_hid_send_buffer((uint8_t*)&usb_hid_buffer, USBD_CUSTOMHID_OUTREPORT_BUF_SIZE);
-    // }
+    // update buffer from keynode list
+    update_hid_buffer();
+    // send USB update
+    usb_hid_send_buffer((uint8_t*)&usb_hid_buffer, USBD_CUSTOMHID_OUTREPORT_BUF_SIZE);
 }
